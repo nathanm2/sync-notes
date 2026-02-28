@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync notes to remote git repositories
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Edit ExecStart if the script lives elsewhere
+ExecStart=/usr/bin/python3 /home/nathanm/src/sync-notes/sync-notes.py
+
+[Install]
+WantedBy=default.target

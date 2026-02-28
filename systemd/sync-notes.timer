@@ -1,0 +1,10 @@
+[Unit]
+Description=Run sync-notes daily
+
+[Timer]
+# Run every day at 01:00
+OnCalendar=*-*-* 01:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
