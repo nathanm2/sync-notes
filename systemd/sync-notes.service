@@ -5,8 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Edit ExecStart if the script lives elsewhere
-ExecStart=/usr/bin/python3 /home/nathanm/src/sync-notes/sync-notes.py
+# -u: Force the stdout and stderr streams to be unbuffered.
+# -j: Add journald <N> prefixes to all logs.
+# -v -v: Log at the 'DEBUG' level.
+ExecStart=/usr/bin/python3 -u /home/nathanm/src/sync-notes/sync-notes.py -j -v -v
+SyslogIdentifier=sync-notes
 
 [Install]
 WantedBy=default.target

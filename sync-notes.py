@@ -16,7 +16,7 @@ import subprocess
 import logging
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sync-notes")
 
 # Syslog/journald priority (severity) for each logging level
 _JOURNAL_PRIORITY = {
@@ -49,10 +49,8 @@ def parse_args():
     parser = argparse.ArgumentParser(prog=prog,
         description="Automatically commit and push one or more git repositories.")
 
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Set logging level to DEBUG.")
-    parser.add_argument("-q", "--quiet", action="store_true",
-                        help="Set logging level to WARNING.")
+    parser.add_argument("-v", "--verbose", action="count", default=0,
+                        help="Increase log verbosity.")
     parser.add_argument("-j", "--journal", action="store_true",
                         help="Prefix logs with journald log level (<PRIORITY>).")
     parser.add_argument("-c", "--config", default=default_config, metavar="<config>",
@@ -62,13 +60,15 @@ def parse_args():
     args = parser.parse_args()
 
     # Setup logging.
-    logging.basicConfig(format='%(levelname)s: %(message)s', stream=sys.stderr)
-    if args.quiet:
-        logging.root.setLevel(logging.WARNING)
-    elif args.verbose:
+    logging.basicConfig(stream=sys.stderr)
+
+    if args.verbose == 1:
+        logging.root.setLevel(logging.INFO)
+    elif args.verbose > 1:
         logging.root.setLevel(logging.DEBUG)
     else:
-        logging.root.setLevel(logging.INFO)
+        logging.root.setLevel(logging.WARNING)
+
     if args.journal:
         for h in logging.root.handlers:
             h.setFormatter(JournalFormatter('%(message)s'))
@@ -107,7 +107,9 @@ def run_git(repo_path, *args):
     cmd = ["git", "-C", repo_path, *args]
     result = run_cmd(cmd)
     if result.returncode != 0:
-        msg = f"{' '.join(args)} failed with exit code {result.returncode}"
+        msg = f"{' '.join(cmd)} failed with exit code {result.returncode}"
+        if result.stdout and not logger.isEnabledFor(logging.DEBUG):
+            msg += f"\n{result.stdout.rstrip()}"
         raise Error(msg)
     return result
 
@@ -128,11 +130,15 @@ def sync_repo(repo_name, repo_meta, commit_msg):
     if is_dirty:
         run_git(repo_path, "add", ".")
         run_git(repo_path, "commit", "-m", commit_msg)
-        run_get(repo_path, "pull", "--rebase", remote_name, remote_branch)
-        run_git(repo_path, "push", remote_name, f"HEAD:{branch_name}")
+        run_git(repo_path, "pull", "--rebase", remote_name, remote_branch)
+        run_git(repo_path, "push", remote_name, f"HEAD:{remote_branch}")
     else:
         run_git(repo_path, "pull", "--rebase", remote_name, remote_branch)
 
+
+def log_error(msg):
+    for line in msg.splitlines():
+        logger.error(line)
 
 def main():
     try:
@@ -145,10 +151,10 @@ def main():
             try:
                 sync_repo(repo_name, dict(config.items(repo_name)), commit_msg)
             except Error as e:
-                logger.error(str(e))
+                log_error(str(e))
                 had_errors = 1
     except Error as e:
-        logger.error(str(e))
+        log_error(str(e))
         had_errors = 1
 
     return had_errors
