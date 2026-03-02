@@ -16,29 +16,55 @@ import subprocess
 import logging
 from datetime import datetime
 
-logger = logging.getLogger("sync-notes")
-
-# Syslog/journald priority (severity) for each logging level
-_JOURNAL_PRIORITY = {
-    logging.DEBUG: 7,
-    logging.INFO: 6,
-    logging.WARNING: 4,
-    logging.ERROR: 3,
-    logging.CRITICAL: 2,
-}
-
-
-class JournalFormatter(logging.Formatter):
-    """Format log records with a journald log level prefix <PRIORITY>."""
-
-    def format(self, record):
-        priority = _JOURNAL_PRIORITY.get(record.levelno, 6)
-        msg = super().format(record)
-        return f"<{priority}>{msg}"
-
 
 class Error(Exception):
     pass
+
+RED = '\033[31m'
+GREEN = '\033[32m'
+YELLOW = '\033[33m'
+RESET = '\033[0m'
+
+
+class ProgLog:
+    def __init__(self, level=logging.INFO, journald_prefix=False):
+        self.level = level
+
+        if journald_prefix:
+            self.error_prefix = "<3>"
+            self.warning_prefix = "<4>"
+            self.info_prefix = "<6>"
+            self.debug_prefix = "<7>"
+        else:
+            self.info_prefix = ""
+
+            if sys.stderr.isatty():
+                self.error_prefix = f"{RED}error:{RESET} "
+                self.warning_prefix = f"{YELLOW}warning:{RESET} "
+                self.debug_prefix = f"{GREEN}debug:{RESET} "
+            else:
+                self.error_prefix = "error: "
+                self.warning_prefix = "warning: "
+                self.debug_prefix = "debug: "
+
+    def error(self, msg):
+        if self.level <= logging.ERROR:
+            print(f"{self.error_prefix}{msg}", file=sys.stderr)
+
+    def warning(self, msg):
+        if self.level <= logging.WARNING:
+            print(f"{self.warning_prefix}{msg}", file=sys.stderr)
+
+    def info(self, msg):
+        if self.level <= logging.INFO:
+            print(f"{self.info_prefix}{msg}", file=sys.stdout)
+
+    def debug(self, msg):
+        if self.level <= logging.DEBUG:
+            print(f"{self.debug_prefix}{msg}", file=sys.stderr)
+
+
+logger = ProgLog()
 
 def parse_args():
     prog = os.path.basename(sys.argv[0])
@@ -49,8 +75,8 @@ def parse_args():
     parser = argparse.ArgumentParser(prog=prog,
         description="Automatically commit and push one or more git repositories.")
 
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="Increase log verbosity.")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Display debug information.")
     parser.add_argument("-j", "--journal", action="store_true",
                         help="Prefix logs with journald log level (<PRIORITY>).")
     parser.add_argument("-c", "--config", default=default_config, metavar="<config>",
@@ -59,19 +85,11 @@ def parse_args():
     # Parse arguments.
     args = parser.parse_args()
 
-    # Setup logging.
-    logging.basicConfig(stream=sys.stderr)
+    # Re-configure the logger:
+    level = logging.DEBUG if args.verbose else logging.INFO
 
-    if args.verbose == 1:
-        logging.root.setLevel(logging.INFO)
-    elif args.verbose > 1:
-        logging.root.setLevel(logging.DEBUG)
-    else:
-        logging.root.setLevel(logging.WARNING)
-
-    if args.journal:
-        for h in logging.root.handlers:
-            h.setFormatter(JournalFormatter('%(message)s'))
+    global logger
+    logger = ProgLog(level = level, journald_prefix = args.journal)
 
     # Check that the config file exists.
     if not os.path.exists(args.config):
@@ -87,31 +105,26 @@ def parse_config(config):
     except (configparser.Error, OSError) as e:
         raise Error(str(e)) from e
 
-def run_cmd(cmd):
+def run_cmd(cmd, check=False):
     """Run a command and (possibly) log its output."""
-    log = logger.isEnabledFor(logging.DEBUG)
 
-    if log:
-        logger.debug(" ".join(cmd))
-
+    logger.debug(" ".join(cmd))
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if result.stdout:
+        logger.debug(result.stdout.rstrip())
 
-    if log and result.stdout:
-        for line in result.stdout.rstrip().splitlines():
-            logger.debug(line)
+    if check and result.returncode != 0:
+        msg = f"command failed: {' '.join(cmd)}, rc={result.returncode}"
+        if logger.level > logging.DEBUG and result.stdout:
+            msg += f"\n{result.stdout.rstrip()}"
+        raise Error(msg)
 
     return result
 
 def run_git(repo_path, *args):
     """Run a git command in 'repo_path' and raise Error if it fails."""
     cmd = ["git", "-C", repo_path, *args]
-    result = run_cmd(cmd)
-    if result.returncode != 0:
-        msg = f"{' '.join(cmd)} failed with exit code {result.returncode}"
-        if result.stdout and not logger.isEnabledFor(logging.DEBUG):
-            msg += f"\n{result.stdout.rstrip()}"
-        raise Error(msg)
-    return result
+    return run_cmd(cmd, check=True)
 
 def sync_repo(repo_name, repo_meta, commit_msg):
     logger.info(f"syncing: {repo_name}")
@@ -135,11 +148,6 @@ def sync_repo(repo_name, repo_meta, commit_msg):
     else:
         run_git(repo_path, "pull", "--rebase", remote_name, remote_branch)
 
-
-def log_error(msg):
-    for line in msg.splitlines():
-        logger.error(line)
-
 def main():
     try:
         args = parse_args()
@@ -151,10 +159,10 @@ def main():
             try:
                 sync_repo(repo_name, dict(config.items(repo_name)), commit_msg)
             except Error as e:
-                log_error(str(e))
+                logger.error(str(e))
                 had_errors = 1
     except Error as e:
-        log_error(str(e))
+        logger.error(str(e))
         had_errors = 1
 
     return had_errors
