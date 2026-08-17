@@ -126,6 +126,11 @@ def run_git(repo_path, *args):
     cmd = ["git", "-C", repo_path, *args]
     return run_cmd(cmd, check=True)
 
+def commit_count(repo_path, src, dst):
+    """Count the number of commits that differ between the 'src' and 'dst' branches."""
+    result = run_git(repo_path, "rev-list", "--count", f"{src}..{dst}")
+    return int(result.stdout.strip())
+
 def sync_repo(repo_name, repo_meta, commit_msg):
     logger.info(f"syncing: {repo_name}")
 
@@ -147,6 +152,8 @@ def sync_repo(repo_name, repo_meta, commit_msg):
         run_git(repo_path, "push", remote_name, f"HEAD:{remote_branch}")
     else:
         run_git(repo_path, "pull", "--rebase", remote_name, remote_branch)
+        if commit_count(repo_path, f"{remote_name}/{remote_branch}", "HEAD") > 0:
+            run_git(repo_path, "push", remote_name, f"HEAD:{remote_branch}")
 
 def main():
     try:
