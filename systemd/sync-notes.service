@@ -2,6 +2,8 @@
 Description=Sync notes to remote git repositories
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30min
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
@@ -10,6 +12,9 @@ Type=oneshot
 # -v -v: Log at the 'DEBUG' level.
 ExecStart=/usr/bin/python3 -u /home/nathanm/src/sync-notes/sync-notes.py -j -v -v
 SyslogIdentifier=sync-notes
+Restart=on-failure
+RestartSec=60s
+TimeoutStartSec=2min
 
 [Install]
 WantedBy=default.target

@@ -5,6 +5,8 @@ Description=Run sync-notes daily
 # Run every day at 01:00
 OnCalendar=*-*-* 01:00:00
 Persistent=true
+RandomizedDelaySec=1h
+FixedRandomDelay=true
 
 [Install]
 WantedBy=timers.target

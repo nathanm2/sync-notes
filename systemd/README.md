@@ -1,6 +1,6 @@
 # systemd service and timer
 
-Runs `sync-notes.py` once per day (06:00) as a **user** service.
+Runs `sync-notes.py` once per day as a **user** service.
 
 ## Install (user service)
 
